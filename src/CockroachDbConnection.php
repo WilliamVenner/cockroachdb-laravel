@@ -2,9 +2,12 @@
 
 namespace YlsIdeas\CockroachDb;
 
+use Closure;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\PDO\PostgresDriver;
 use Illuminate\Database\PostgresConnection;
+use PDOException;
+use Throwable;
 use Illuminate\Filesystem\Filesystem;
 use YlsIdeas\CockroachDb\Builder\CockroachDbBuilder as DbBuilder;
 use YlsIdeas\CockroachDb\Processor\CockroachDbProcessor as DbProcessor;
@@ -41,6 +44,73 @@ class CockroachDbConnection extends PostgresConnection implements ConnectionInte
     protected function getDefaultPostProcessor()
     {
         return new DbProcessor();
+    }
+
+    /**
+     * CockroachDB implicitly commits DDL statements, which causes
+     * "There is no active transaction" errors when Laravel tries
+     * to commit the wrapping transaction. We override both commit paths.
+     */
+    public function transaction(Closure $callback, $attempts = 1)
+    {
+        for ($currentAttempt = 1; $currentAttempt <= $attempts; $currentAttempt++) {
+            $this->beginTransaction();
+
+            try {
+                $callbackResult = $callback($this);
+            } catch (Throwable $e) {
+                $this->handleTransactionException($e, $currentAttempt, $attempts);
+
+                continue;
+            }
+
+            $levelBeingCommitted = $this->transactions;
+
+            try {
+                if ($this->transactions == 1) {
+                    $this->fireConnectionEvent('committing');
+
+                    try {
+                        $this->getPdo()->commit();
+                    } catch (PDOException $e) {
+                        if (! str_contains($e->getMessage(), 'There is no active transaction')) {
+                            throw $e;
+                        }
+                    }
+                }
+
+                $this->transactions = max(0, $this->transactions - 1);
+            } catch (Throwable $e) {
+                $this->handleCommitTransactionException($e, $currentAttempt, $attempts);
+
+                continue;
+            }
+
+            $this->transactionsManager?->commit(
+                $this->getName(),
+                $levelBeingCommitted,
+                $this->transactions
+            );
+
+            $this->fireConnectionEvent('committed');
+
+            return $callbackResult;
+        }
+    }
+
+    public function commit()
+    {
+        try {
+            parent::commit();
+        } catch (PDOException $e) {
+            if (str_contains($e->getMessage(), 'There is no active transaction')) {
+                $this->transactions = max(0, $this->transactions - 1);
+
+                return;
+            }
+
+            throw $e;
+        }
     }
 
     protected function getDoctrineDriver()
