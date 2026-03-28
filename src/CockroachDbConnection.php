@@ -16,7 +16,7 @@ class CockroachDbConnection extends PostgresConnection implements ConnectionInte
 {
     protected function getDefaultQueryGrammar()
     {
-        return $this->withTablePrefix(new QueryGrammar($this));
+        return new QueryGrammar($this);
     }
 
     public function getSchemaBuilder(): DbBuilder
@@ -30,7 +30,7 @@ class CockroachDbConnection extends PostgresConnection implements ConnectionInte
 
     protected function getDefaultSchemaGrammar()
     {
-        return $this->withTablePrefix(new SchemaGrammar($this));
+        return new SchemaGrammar($this);
     }
 
     public function getSchemaState(?Filesystem $files = null, ?callable $processFactory = null)
