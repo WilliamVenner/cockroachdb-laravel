@@ -19,12 +19,13 @@ class CockroachDbProcessor extends PostgresProcessor
                 'type' => $result->type,
                 'collation' => $result->collation,
                 'nullable' => (bool) $result->nullable,
-                'default' => ($result->generated ?? null) ? null : $result->default,
+                'default' => $result->generated ? null : $result->default,
                 'auto_increment' => $autoincrement,
                 'comment' => $result->comment,
-                'generation' => ($result->generated ?? null) ? [
+                'generation' => $result->generated ? [
                     'type' => match ($result->generated) {
                         's' => 'stored',
+                        'v' => 'virtual',
                         default => null,
                     },
                     'expression' => $result->default,
